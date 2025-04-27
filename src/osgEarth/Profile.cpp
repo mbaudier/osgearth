@@ -212,6 +212,25 @@ Profile::create(const SpatialReference* srs)
 }
 
 const Profile*
+Profile::create(const GeoExtent& extent)
+{
+    OE_SOFT_ASSERT_AND_RETURN(extent.isValid(), nullptr);
+
+    unsigned tx = 1, ty = 1;
+    float ar = (float)extent.width() / (float)extent.height();
+    if (ar > 1.5f)
+    {
+        tx = (unsigned)::ceil(ar);
+    }
+    else if (ar < 0.5f)
+    {
+        ty = (unsigned)::ceil(1.0f / ar);
+    }
+
+    return create(extent.getSRS(), extent.xMin(), extent.yMin(), extent.xMax(), extent.yMax(), tx, ty);
+}
+
+const Profile*
 Profile::create(const SpatialReference* srs,
                 double xmin, double ymin, double xmax, double ymax,
                 double geoxmin, double geoymin, double geoxmax, double geoymax,
@@ -255,7 +274,7 @@ Profile::create(const std::string& srsInitString,
     }
     else if ( srs.valid() )
     {
-        OE_INFO << LC << "No extents given, making some up.\n";
+        OE_DEBUG << LC << "No extents given, making a best guess" << std::endl;
         Bounds bounds;
         if (srs->getBounds(bounds))
         {
@@ -361,13 +380,11 @@ Profile::create_with_vdatum(const std::string& name, const std::string& vsrsStri
 {
     if ( ciEquals(name, PLATE_CARREE) || ciEquals(name, "plate-carre") || ciEquals(name, "eqc-wgs84") )
     {
-        // Yes I know this is not really Plate Carre but it will stand in for now.
         osg::Vec3d ex;
         const SpatialReference* plateCarre = SpatialReference::get("plate-carre", vsrsString);
         const SpatialReference* wgs84 = SpatialReference::get("wgs84", vsrsString);
-        wgs84->transform(osg::Vec3d(180,90,0), plateCarre, ex);
-
-        return Profile::create(PLATE_CARREE, plateCarre, -ex.x(), -ex.y(), ex.x(), ex.y(), 2u, 1u);
+        wgs84->transform(osg::Vec3d(-180,-90,0), plateCarre, ex);
+        return Profile::create(PLATE_CARREE, plateCarre, ex.x(), ex.y(), -ex.x(), -ex.y(), 2u, 1u);
     }
     else if (ciEquals(name, GLOBAL_GEODETIC))
     {
@@ -732,11 +749,6 @@ Profile::clampAndTransformExtent(const GeoExtent& input, bool* out_clamped) cons
             clamped_gcs_input :
             clamped_gcs_input.transform( this->getSRS() );
 
-        if (result.isValid())
-        {
-            OE_DEBUG << LC << "clamp&xform: input=" << input.toString() << ", output=" << result.toString() << std::endl;
-        }
-
         return result;
     }    
 }
@@ -805,8 +817,6 @@ Profile::addIntersectingTiles(const GeoExtent& key_ext, unsigned localLOD, std::
     tileMinY = osg::clampBetween(tileMinY, 0, (int)numHigh-1);
     tileMaxY = osg::clampBetween(tileMaxY, 0, (int)numHigh-1);
 
-    OE_DEBUG << std::fixed << "  Dest Tiles: " << tileMinX << "," << tileMinY << " => " << tileMaxX << "," << tileMaxY << std::endl;
-
     for (int i = tileMinX; i <= tileMaxX; ++i)
     {
         for (int j = tileMinY; j <= tileMaxY; ++j)
@@ -821,8 +831,6 @@ Profile::addIntersectingTiles(const GeoExtent& key_ext, unsigned localLOD, std::
 void
 Profile::getIntersectingTiles(const TileKey& key, std::vector<TileKey>& out_intersectingKeys) const
 {
-    OE_DEBUG << "GET ISECTING TILES for key " << key.str() << " -----------------" << std::endl;
-
     //If the profiles are exactly equal, just add the given tile key.
     if ( isHorizEquivalentTo( key.getProfile() ) )
     {
@@ -836,9 +844,6 @@ Profile::getIntersectingTiles(const TileKey& key, std::vector<TileKey>& out_inte
         // in the source LOD in terms of resolution.
         unsigned localLOD = getEquivalentLOD(key.getProfile(), key.getLOD());
         getIntersectingTiles(key.getExtent(), localLOD, out_intersectingKeys);
-
-        OE_DEBUG << LC << "GIT, key="<< key.str() << ", localLOD=" << localLOD
-            << ", resulted in " << out_intersectingKeys.size() << " tiles" << std::endl;
     }
 }
 

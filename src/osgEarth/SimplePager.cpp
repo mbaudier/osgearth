@@ -212,15 +212,21 @@ SimplePager::createNode(const TileKey& key, ProgressCallback* progress)
     else
     {
         osg::BoundingSphered bounds = getBounds(key);
-
-        osg::MatrixTransform* mt = new osg::MatrixTransform;
-        mt->setMatrix(osg::Matrixd::translate(bounds.center()));
-        osg::Geode* geode = new osg::Geode;
-        osg::ShapeDrawable* sd = new osg::ShapeDrawable(new osg::Sphere(osg::Vec3f(0, 0, 0), bounds.radius()));
-        sd->setColor(osg::Vec4(1, 0, 0, 1));
-        geode->addDrawable(sd);
-        mt->addChild(geode);
-        return mt;
+        if (bounds.valid())
+        {
+            osg::MatrixTransform* mt = new osg::MatrixTransform;
+            mt->setMatrix(osg::Matrixd::translate(bounds.center()));
+            osg::Geode* geode = new osg::Geode;
+            osg::ShapeDrawable* sd = new osg::ShapeDrawable(new osg::Sphere(osg::Vec3f(0, 0, 0), bounds.radius()));
+            sd->setColor(osg::Vec4(1, 0, 0, 1));
+            geode->addDrawable(sd);
+            mt->addChild(geode);
+            return mt;
+        }
+        else
+        {
+            return {};
+        }
     }
 }
 
@@ -256,6 +262,10 @@ SimplePager::createChildNode(const TileKey& key, ProgressCallback* progress)
                 payload->accept(*kdTreeBuilder.get());
             }
         }
+
+#if 0
+        // if we comment this out, the pager will continue to subdivide even up to the max level,
+        // which MIGHT be desirable for some datasets with sparse data...
         else if (!_additive)
         {
             // If we are in REPLACE mode, and this node's payload did not appear,
@@ -263,6 +273,7 @@ SimplePager::createChildNode(const TileKey& key, ProgressCallback* progress)
             // In ADD mode, we will continue to subdivide because we do not know when data will appear.
             hasChildren = false;
         }
+#endif
     }
 
     if (hasChildren)

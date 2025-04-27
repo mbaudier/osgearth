@@ -22,6 +22,7 @@
 #include "Utils"
 #include "Math"
 #include "Notify"
+#include "Horizon"
 
 #include <osg/TemplatePrimitiveFunctor>
 #include <osgDB/ObjectWrapper>
@@ -555,10 +556,6 @@ void OcclusionCullingCallback::operator()(osg::Node* node, osg::NodeVisitor* nv)
 
         if (nv->getFrameStamp()->getFrameNumber() != frameNumber)
         {
-            if (numCompleted > 0 || numSkipped > 0)
-            {
-                OE_DEBUG << "OcclusionCullingCallback frame=" << frameNumber << " completed=" << numCompleted << " skipped=" << numSkipped << std::endl;
-            }
             frameNumber = nv->getFrameStamp()->getFrameNumber();
             numCompleted = 0;
             numSkipped = 0;
@@ -973,42 +970,6 @@ LODScaleGroup::traverse(osg::NodeVisitor& nv)
     osg::Group::traverse( nv );
 }
 
-//------------------------------------------------------------------
-
-ClipToGeocentricHorizon::ClipToGeocentricHorizon(
-    const osgEarth::SpatialReference* srs,
-    osg::ClipPlane* clipPlane)
-{
-    if ( srs )
-    {
-        _horizon = new Horizon();
-        _horizon->setEllipsoid(srs->getEllipsoid());
-    }
-
-    _clipPlane = clipPlane;
-}
-
-void
-ClipToGeocentricHorizon::operator()(osg::Node* node, osg::NodeVisitor* nv)
-{
-    osg::ref_ptr<osg::ClipPlane> clipPlane;
-    if ( _clipPlane.lock(clipPlane) )
-    {
-        osg::ref_ptr<Horizon> horizon;
-        if (!ObjectStorage::get(nv, horizon))
-        {
-            horizon = new Horizon(*_horizon.get());
-            horizon->setEye( nv->getViewPoint() );
-        }
-
-        osg::Plane horizonPlane;
-        horizon->getPlane( horizonPlane );
-
-        _clipPlane->setClipPlane( horizonPlane );
-    }
-    traverse(node, nv);
-}
-
 //..........................................................................
 
 void
@@ -1174,6 +1135,58 @@ InstallCameraUniform::operator()(osg::Node* node, osg::NodeVisitor* nv)
     if (ss.valid())
         cv->popStateSet();
 }
+
+
+//...................................................................
+
+
+void
+ToggleVisibleCullCallback::operator()(osg::Node* node, osg::NodeVisitor* nv)
+{
+    if (_visible)
+    {
+        traverse(node, nv);
+    }
+    else
+    {
+        osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(nv);
+        osg::ref_ptr<osgUtil::RenderBin> savedBin;
+        osg::ref_ptr<EmptyRenderBin> emptyStage;
+        osg::UserDataContainer* udc;
+        if (cv)
+        {
+            savedBin = cv->getCurrentRenderBin();
+            emptyStage = new EmptyRenderBin(savedBin->getStage());
+            cv->setCurrentRenderBin(emptyStage.get());
+            cv->setUserValue("oe_visible", false);
+            udc = cv->getUserDataContainer();
+        }
+
+        traverse(node, nv);
+
+        if (cv)
+        {
+            auto index = udc->getUserObjectIndex("oe_visible");
+            udc->removeUserObject(index);
+            cv->setCurrentRenderBin(savedBin.get());
+        }
+    }
+}
+
+void
+CheckVisibilityCallback::operator()(osg::Node* node, osg::NodeVisitor* nv)
+{
+    osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(nv);
+    bool visible = true;
+    if (cv && cv->getUserValue("oe_visible", visible) && !visible)
+        return;
+
+    traverse(node, nv);
+}
+
+
+//...................................................................
+
 
 namespace osgEarth { namespace Serializers { namespace InstallCameraUniform
 {
